@@ -34,7 +34,14 @@ jobs:
       - name: Download Dependencies
         run: go mod download
 
-      - name: Build and Package
+      - name: Install Fyne Cross
+        run: go install github.com/fyne-io/fyne-cross@latest
+
+      - name: Build with Fyne Cross
+        run: |
+          fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }}
+
+      - name: Package Artifacts
         run: |
           # 1. Determine binary name based on OS
           BINARY_NAME=${APP_NAME}
@@ -42,9 +49,8 @@ jobs:
             BINARY_NAME="${BINARY_NAME}.exe"
           fi
 
-          # 2. Build the executable
-          echo "Building for ${{ matrix.goos }}/${{ matrix.goarch }}..."
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o $BINARY_NAME .
+          # 2. Navigate into the output directory
+          cd fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}
 
           # 3. Package into an archive (Zip for Windows, Tar.gz for Unix)
           ARCHIVE_BASE="${APP_NAME}-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
@@ -57,11 +63,10 @@ jobs:
             tar -czvf "${ARCHIVE_NAME}" "$BINARY_NAME"
           fi
 
-          # 4. Save the archive name to GitHub environment variables for the next step
-          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+          echo "ARCHIVE_PATH=fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}/$ARCHIVE_NAME" >> $GITHUB_ENV
 
       - name: Create Release and Upload Artifact
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ARCHIVE_NAME }}
+          files: ${{ env.ARCHIVE_PATH }}
           generate_release_notes: true # Auto-generates changelog based on PRs
