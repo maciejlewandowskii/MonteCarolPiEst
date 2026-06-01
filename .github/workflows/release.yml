@@ -50,42 +50,44 @@ jobs:
       - name: Download Dependencies
         run: go mod download
 
-      - name: Install Fyne Cross
-        run: go install github.com/fyne-io/fyne-cross@latest
+      - name: Install Build Tools
+        run: |
+          go install github.com/fyne-io/fyne-cross@latest
+          go install fyne.io/fyne/v2/cmd/fyne@latest
 
-      - name: Build with Fyne Cross
+      - name: Build and Package
         shell: bash
         run: |
           if [ "${{ matrix.goos }}" = "darwin" ]; then
-            fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }} -local
-          else
-            fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }}
-          fi
-
-      - name: Package Artifacts
-        shell: bash
-        run: |
-          # Navigate into the output directory
-          cd fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}
-          ARCHIVE_BASE="${APP_NAME}-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+            echo "Building native macOS bundle for ${{ matrix.goarch }}..."
+            GOARCH=${{ matrix.goarch }} fyne package -os darwin -appID com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }}
           
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BINARY_NAME="${APP_NAME}.exe"
-            ARCHIVE_NAME="${ARCHIVE_BASE}.zip"
-            zip "${ARCHIVE_NAME}" "$BINARY_NAME"
-          elif [ "${{ matrix.goos }}" = "darwin" ]; then
-            # Fyne outputs an .app bundle on macOS, which must be compressed entirely
             BUNDLE_NAME="${APP_NAME}.app"
-            ARCHIVE_NAME="${ARCHIVE_BASE}.tar.gz"
+            ARCHIVE_NAME="${APP_NAME}-${{ github.ref_name }}-darwin-${{ matrix.goarch }}.tar.gz"
             tar -czvf "${ARCHIVE_NAME}" "$BUNDLE_NAME"
+          
+            echo "ARCHIVE_PATH=${ARCHIVE_NAME}" >> $GITHUB_ENV
           else
-            BINARY_NAME="${APP_NAME}"
-            ARCHIVE_NAME="${ARCHIVE_BASE}.tar.gz"
-            tar -czvf "${ARCHIVE_NAME}" "$BINARY_NAME"
+            echo "Building with Docker (fyne-cross) for ${{ matrix.goos }}/${{ matrix.goarch }}..."
+            fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }}
+          
+            # Navigate into the output directory
+            cd fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}
+            ARCHIVE_BASE="${APP_NAME}-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          
+            if [ "${{ matrix.goos }}" = "windows" ]; then
+              BINARY_NAME="${APP_NAME}.exe"
+              ARCHIVE_NAME="${ARCHIVE_BASE}.zip"
+              zip "${ARCHIVE_NAME}" "$BINARY_NAME"
+            else
+              BINARY_NAME="${APP_NAME}"
+              ARCHIVE_NAME="${ARCHIVE_BASE}.tar.gz"
+              tar -czvf "${ARCHIVE_NAME}" "$BINARY_NAME"
+            fi
+          
+            # Save the full path of the archive to GitHub environment variables
+            echo "ARCHIVE_PATH=fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}/$ARCHIVE_NAME" >> $GITHUB_ENV
           fi
-
-          # Save the full path of the archive to GitHub environment variables
-          echo "ARCHIVE_PATH=fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}/$ARCHIVE_NAME" >> $GITHUB_ENV
 
       - name: Create Release and Upload Artifact
         uses: softprops/action-gh-release@v2
