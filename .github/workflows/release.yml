@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*' # Triggers the workflow only when a tag starting with 'v' is pushed (e.g., v1.0.0)
+      - 'v*'
 
 permissions:
   contents: write
@@ -11,12 +11,28 @@ permissions:
 jobs:
   build-and-release:
     name: Build and Package
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        # Cross-compile for these operating systems and architectures
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+          - goos: windows
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: windows
+            goarch: arm64
+            runner: ubuntu-latest
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
 
     env:
       APP_NAME: MontecarloPiEstimator
@@ -28,7 +44,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.22'
           check-latest: true
 
       - name: Download Dependencies
@@ -38,35 +54,41 @@ jobs:
         run: go install github.com/fyne-io/fyne-cross@latest
 
       - name: Build with Fyne Cross
+        shell: bash
         run: |
-          fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }}
-
-      - name: Package Artifacts
-        run: |
-          # 1. Determine binary name based on OS
-          BINARY_NAME=${APP_NAME}
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BINARY_NAME="${BINARY_NAME}.exe"
+          if [ "${{ matrix.goos }}" = "darwin" ]; then
+            fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }} -local
+          else
+            fyne-cross ${{ matrix.goos }} -arch=${{ matrix.goarch }} -app-id com.example.${{ env.APP_NAME }} -name ${{ env.APP_NAME }}
           fi
 
-          # 2. Navigate into the output directory
+      - name: Package Artifacts
+        shell: bash
+        run: |
+          # Navigate into the output directory
           cd fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}
-
-          # 3. Package into an archive (Zip for Windows, Tar.gz for Unix)
           ARCHIVE_BASE="${APP_NAME}-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
           
           if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="${APP_NAME}.exe"
             ARCHIVE_NAME="${ARCHIVE_BASE}.zip"
             zip "${ARCHIVE_NAME}" "$BINARY_NAME"
+          elif [ "${{ matrix.goos }}" = "darwin" ]; then
+            # Fyne outputs an .app bundle on macOS, which must be compressed entirely
+            BUNDLE_NAME="${APP_NAME}.app"
+            ARCHIVE_NAME="${ARCHIVE_BASE}.tar.gz"
+            tar -czvf "${ARCHIVE_NAME}" "$BUNDLE_NAME"
           else
+            BINARY_NAME="${APP_NAME}"
             ARCHIVE_NAME="${ARCHIVE_BASE}.tar.gz"
             tar -czvf "${ARCHIVE_NAME}" "$BINARY_NAME"
           fi
 
+          # Save the full path of the archive to GitHub environment variables
           echo "ARCHIVE_PATH=fyne-cross/bin/${{ matrix.goos }}-${{ matrix.goarch }}/$ARCHIVE_NAME" >> $GITHUB_ENV
 
       - name: Create Release and Upload Artifact
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ARCHIVE_PATH }}
-          generate_release_notes: true # Auto-generates changelog based on PRs
+          generate_release_notes: true
